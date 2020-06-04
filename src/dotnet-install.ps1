@@ -77,6 +77,9 @@
 .PARAMETER JSonFile
     Determines the SDK version from a user specified global.json file
     Note: global.json must have a value for 'SDK:Version'
+.PARAMETER EnableTls
+    Explicitly sets enabled SecurityProtocol to Tls1.2 | Tls1.3.
+    This should be used when Tls1.2 or Tls1.3 security protocols are not enabled by default (.NET Framework < 4.6).
 #>
 [cmdletbinding()]
 param(
@@ -97,7 +100,8 @@ param(
    [string]$ProxyAddress,
    [switch]$ProxyUseDefaultCredentials,
    [switch]$SkipNonVersionedFiles,
-   [switch]$NoCdn
+   [switch]$NoCdn,
+   [switch]$EnableTls
 )
 
 Set-StrictMode -Version Latest
@@ -555,132 +559,147 @@ function Prepend-Sdk-InstallRoot-To-Path([string]$InstallRoot, [string]$BinFolde
     }
 }
 
-$CLIArchitecture = Get-CLIArchitecture-From-Architecture $Architecture
-$SpecificVersion = Get-Specific-Version-From-Version -AzureFeed $AzureFeed -Channel $Channel -Version $Version -JSonFile $JSonFile
-$DownloadLink = Get-Download-Link -AzureFeed $AzureFeed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
-$LegacyDownloadLink = Get-LegacyDownload-Link -AzureFeed $AzureFeed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
+if($EnableTls){
+    $InitialSecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol;
+    # Default Tls protocol for .NET Framework 4.5 does not allow for Tls1.2.
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12;
+    # Enable 1.3 for systems that have 1.2 disabled
+    [System.Net.ServicePointManager]::SecurityProtocol += [System.Net.SecurityProtocolType]::Tls13;
+}
 
-$InstallRoot = Resolve-Installation-Path $InstallDir
-Say-Verbose "InstallRoot: $InstallRoot"
-$ScriptName = $MyInvocation.MyCommand.Name
+try{
+    $CLIArchitecture = Get-CLIArchitecture-From-Architecture $Architecture
+    $SpecificVersion = Get-Specific-Version-From-Version -AzureFeed $AzureFeed -Channel $Channel -Version $Version -JSonFile $JSonFile
+    $DownloadLink = Get-Download-Link -AzureFeed $AzureFeed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
+    $LegacyDownloadLink = Get-LegacyDownload-Link -AzureFeed $AzureFeed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
 
-if ($DryRun) {
-    Say "Payload URLs:"
-    Say "Primary named payload URL: $DownloadLink"
-    if ($LegacyDownloadLink) {
-        Say "Legacy named payload URL: $LegacyDownloadLink"
+    $InstallRoot = Resolve-Installation-Path $InstallDir
+    Say-Verbose "InstallRoot: $InstallRoot"
+    $ScriptName = $MyInvocation.MyCommand.Name
+
+    if ($DryRun) {
+        Say "Payload URLs:"
+        Say "Primary named payload URL: $DownloadLink"
+        if ($LegacyDownloadLink) {
+            Say "Legacy named payload URL: $LegacyDownloadLink"
+        }
+        $RepeatableCommand = ".\$ScriptName -Version `"$SpecificVersion`" -InstallDir `"$InstallRoot`" -Architecture `"$CLIArchitecture`""
+        if ($Runtime -eq "dotnet") {
+        $RepeatableCommand+=" -Runtime `"dotnet`""
+        }
+        elseif ($Runtime -eq "aspnetcore") {
+        $RepeatableCommand+=" -Runtime `"aspnetcore`""
+        }
+        foreach ($key in $MyInvocation.BoundParameters.Keys) {
+            if (-not (@("Architecture","Channel","DryRun","InstallDir","Runtime","SharedRuntime","Version") -contains $key)) {
+                $RepeatableCommand+=" -$key `"$($MyInvocation.BoundParameters[$key])`""
+            }
+        }
+        Say "Repeatable invocation: $RepeatableCommand"
+        exit 0
     }
-    $RepeatableCommand = ".\$ScriptName -Version `"$SpecificVersion`" -InstallDir `"$InstallRoot`" -Architecture `"$CLIArchitecture`""
+
     if ($Runtime -eq "dotnet") {
-       $RepeatableCommand+=" -Runtime `"dotnet`""
+        $assetName = ".NET Core Runtime"
+        $dotnetPackageRelativePath = "shared\Microsoft.NETCore.App"
     }
     elseif ($Runtime -eq "aspnetcore") {
-       $RepeatableCommand+=" -Runtime `"aspnetcore`""
+        $assetName = "ASP.NET Core Runtime"
+        $dotnetPackageRelativePath = "shared\Microsoft.AspNetCore.App"
     }
-    foreach ($key in $MyInvocation.BoundParameters.Keys) {
-        if (-not (@("Architecture","Channel","DryRun","InstallDir","Runtime","SharedRuntime","Version") -contains $key)) {
-            $RepeatableCommand+=" -$key `"$($MyInvocation.BoundParameters[$key])`""
-        }
+    elseif ($Runtime -eq "windowsdesktop") {
+        $assetName = ".NET Core Windows Desktop Runtime"
+        $dotnetPackageRelativePath = "shared\Microsoft.WindowsDesktop.App"
     }
-    Say "Repeatable invocation: $RepeatableCommand"
-    exit 0
-}
+    elseif (-not $Runtime) {
+        $assetName = ".NET Core SDK"
+        $dotnetPackageRelativePath = "sdk"
+    }
+    else {
+        throw "Invalid value for `$Runtime"
+    }
 
-if ($Runtime -eq "dotnet") {
-    $assetName = ".NET Core Runtime"
-    $dotnetPackageRelativePath = "shared\Microsoft.NETCore.App"
-}
-elseif ($Runtime -eq "aspnetcore") {
-    $assetName = "ASP.NET Core Runtime"
-    $dotnetPackageRelativePath = "shared\Microsoft.AspNetCore.App"
-}
-elseif ($Runtime -eq "windowsdesktop") {
-    $assetName = ".NET Core Windows Desktop Runtime"
-    $dotnetPackageRelativePath = "shared\Microsoft.WindowsDesktop.App"
-}
-elseif (-not $Runtime) {
-    $assetName = ".NET Core SDK"
-    $dotnetPackageRelativePath = "sdk"
-}
-else {
-    throw "Invalid value for `$Runtime"
-}
+    #  Check if the SDK version is already installed.
+    $isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $SpecificVersion
+    if ($isAssetInstalled) {
+        Say "$assetName version $SpecificVersion is already installed."
+        Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
+        exit 0
+    }
 
-#  Check if the SDK version is already installed.
-$isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $SpecificVersion
-if ($isAssetInstalled) {
-    Say "$assetName version $SpecificVersion is already installed."
-    Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
-    exit 0
-}
+    New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 
-New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+    $installDrive = $((Get-Item $InstallRoot).PSDrive.Name);
+    $diskInfo = Get-PSDrive -Name $installDrive
+    if ($diskInfo.Free / 1MB -le 100) {
+        Say "There is not enough disk space on drive ${installDrive}:"
+        exit 0
+    }
 
-$installDrive = $((Get-Item $InstallRoot).PSDrive.Name);
-$diskInfo = Get-PSDrive -Name $installDrive
-if ($diskInfo.Free / 1MB -le 100) {
-    Say "There is not enough disk space on drive ${installDrive}:"
-    exit 0
-}
+    $ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+    Say-Verbose "Zip path: $ZipPath"
 
-$ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-Say-Verbose "Zip path: $ZipPath"
-
-$DownloadFailed = $false
-Say "Downloading link: $DownloadLink"
-try {
-    DownloadFile -Source $DownloadLink -OutPath $ZipPath
-}
-catch {
-    Say "Cannot download: $DownloadLink"
-    if ($LegacyDownloadLink) {
-        $DownloadLink = $LegacyDownloadLink
-        $ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-        Say-Verbose "Legacy zip path: $ZipPath"
-        Say "Downloading legacy link: $DownloadLink"
-        try {
-            DownloadFile -Source $DownloadLink -OutPath $ZipPath
+    $DownloadFailed = $false
+    Say "Downloading link: $DownloadLink"
+    try {
+        DownloadFile -Source $DownloadLink -OutPath $ZipPath
+    }
+    catch {
+        Say "Cannot download: $DownloadLink"
+        if ($LegacyDownloadLink) {
+            $DownloadLink = $LegacyDownloadLink
+            $ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+            Say-Verbose "Legacy zip path: $ZipPath"
+            Say "Downloading legacy link: $DownloadLink"
+            try {
+                DownloadFile -Source $DownloadLink -OutPath $ZipPath
+            }
+            catch {
+                Say "Cannot download: $DownloadLink"
+                $DownloadFailed = $true
+            }
         }
-        catch {
-            Say "Cannot download: $DownloadLink"
+        else {
             $DownloadFailed = $true
         }
     }
-    else {
-        $DownloadFailed = $true
+
+    if ($DownloadFailed) {
+        throw "Could not find/download: `"$assetName`" with version = $SpecificVersion`nRefer to: https://aka.ms/dotnet-os-lifecycle for information on .NET Core support"
+    }
+
+    Say "Extracting zip from $DownloadLink"
+    Extract-Dotnet-Package -ZipPath $ZipPath -OutPath $InstallRoot
+
+    #  Check if the SDK version is installed; if not, fail the installation.
+    $isAssetInstalled = $false
+
+    # if the version contains "RTM" or "servicing"; check if a 'release-type' SDK version is installed.
+    if ($SpecificVersion -Match "rtm" -or $SpecificVersion -Match "servicing") {
+        $ReleaseVersion = $SpecificVersion.Split("-")[0]
+        Say-Verbose "Checking installation: version = $ReleaseVersion"
+        $isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $ReleaseVersion
+    }
+
+    #  Check if the SDK version is installed.
+    if (!$isAssetInstalled) {
+        Say-Verbose "Checking installation: version = $SpecificVersion"
+        $isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $SpecificVersion
+    }
+
+    if (!$isAssetInstalled) {
+        throw "`"$assetName`" with version = $SpecificVersion failed to install with an unknown error."
+    }
+
+    Remove-Item $ZipPath
+
+    Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
+}
+finally{
+    if($EnableTls) {
+        # Restore SecurityProtocol back to original value
+        [System.Net.ServicePointManager]::SecurityProtocol = $InitialSecurityProtocol;
     }
 }
-
-if ($DownloadFailed) {
-    throw "Could not find/download: `"$assetName`" with version = $SpecificVersion`nRefer to: https://aka.ms/dotnet-os-lifecycle for information on .NET Core support"
-}
-
-Say "Extracting zip from $DownloadLink"
-Extract-Dotnet-Package -ZipPath $ZipPath -OutPath $InstallRoot
-
-#  Check if the SDK version is installed; if not, fail the installation.
-$isAssetInstalled = $false
-
-# if the version contains "RTM" or "servicing"; check if a 'release-type' SDK version is installed.
-if ($SpecificVersion -Match "rtm" -or $SpecificVersion -Match "servicing") {
-    $ReleaseVersion = $SpecificVersion.Split("-")[0]
-    Say-Verbose "Checking installation: version = $ReleaseVersion"
-    $isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $ReleaseVersion
-}
-
-#  Check if the SDK version is installed.
-if (!$isAssetInstalled) {
-    Say-Verbose "Checking installation: version = $SpecificVersion"
-    $isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $SpecificVersion
-}
-
-if (!$isAssetInstalled) {
-    throw "`"$assetName`" with version = $SpecificVersion failed to install with an unknown error."
-}
-
-Remove-Item $ZipPath
-
-Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
-
 Say "Installation finished"
 exit 0
