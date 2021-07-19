@@ -15,15 +15,15 @@ stages:
         Linux:
           imageName: 'ubuntu-latest'
           osName: 'Ubuntu'
-          testProject: src\MonitoringFunctions.UnixTest
+          testProject: '**/UnixTest.csproj'
         Mac:
           imageName: 'macos-latest'
           osName: 'Mac OS'
-          testProject: src\MonitoringFunctions.UnixTest
+          testProject: '**/UnixTest.csproj'
         Windows:
           imageName: 'windows-latest'
           osName: 'Windows'
-          testProject: src\MonitoringFunctions.WindowsTest
+          testProject: '**/WindowsTest.csproj'
 
     pool:
       vmImage: $(imageName)
