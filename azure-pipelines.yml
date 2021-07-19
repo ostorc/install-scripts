@@ -38,7 +38,7 @@ stages:
       inputs:
         arguments: '-c $(buildConfiguration)'
         command: 'test'
-        projects: '$(testProject)/$(testProject).csproj'
+        projects: '$(testProject)'
         testRunTitle: '$(osName) test'
         
 
