@@ -29,7 +29,7 @@ namespace MonitoringFunctions
             processStartInfo.RedirectStandardOutput = true;
             processStartInfo.RedirectStandardError = true;
 
-            Process installScriptProc = Process.Start(processStartInfo);
+            Process installScriptProc = Process.Start(processStartInfo)!;
             string consoleOutput = await installScriptProc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
             string consoleError = await installScriptProc.StandardError.ReadToEndAsync().ConfigureAwait(false);
 

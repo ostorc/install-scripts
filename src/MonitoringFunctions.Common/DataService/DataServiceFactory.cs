@@ -5,7 +5,7 @@ using System;
 
 namespace MonitoringFunctions
 {
-    internal sealed class DataServiceFactory
+    public sealed class DataServiceFactory
     {
         public IDataService GetDataService()
         {
@@ -17,7 +17,7 @@ namespace MonitoringFunctions
             }
             else
             {
-                return new KustoDataService();
+                return new DummyDataService();
             }
         }
     }

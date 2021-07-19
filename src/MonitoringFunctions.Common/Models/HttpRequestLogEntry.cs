@@ -10,7 +10,7 @@ namespace MonitoringFunctions.Models
     /// <summary>
     /// Represents an http request event made from a function to be inserted into Kusto.
     /// </summary>
-    internal struct HttpRequestLogEntry : IEquatable<HttpRequestLogEntry>, IKustoTableRow
+    public struct HttpRequestLogEntry : IEquatable<HttpRequestLogEntry>, IKustoTableRow
     {
         /// <summary>
         /// Identifier for the monitor that generated this log entry.

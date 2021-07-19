@@ -1,28 +1,61 @@
-strategy:
-  matrix:
-    linux:
-      imageName: 'ubuntu-16.04'
-    mac:
-      imageName: 'macos-10.14'
-    windows:
-      imageName: 'vs2017-win2016'
-
-pool:
-  vmImage: $(imageName)
-
+name:  $(TeamProject)_$(Build.DefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
 
 variables:
-  solution: '*.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
 
-steps:
-- task: NuGetToolInstaller@1
+stages:
 
-- task: NuGetCommand@2
-  inputs:
-    restoreSolution: '$(solution)'
-- task: DotNetCoreCLI@2
-  inputs:
-    command: 'build'
+- stage: Test_All_Platforms
+  displayName: 'Test all platforms'
+  jobs:
+  - job: Test
+    strategy:
+      matrix:
+        Linux:
+          imageName: 'ubuntu-latest'
+          osName: 'Ubuntu'
+          testProject: src/MonitoringFunctions.UnixTest
+        Mac:
+          imageName: 'macos-latest'
+          osName: 'Mac OS'
+          testProject: src/MonitoringFunctions.UnixTest
+        Windows:
+          imageName: 'windows-latest'
+          osName: 'Windows'
+          testProject: src/MonitoringFunctions.WindowsTest
 
+    pool:
+      vmImage: $(imageName)
+    steps:
+    - script: echo '$(Build.BuildUri)'
+    - task: UseDotNet@2
+      inputs:
+        version: 5.x
+        performMultiLevelLookup: true
+
+    - task: DotNetCoreCLI@2
+      inputs:
+        arguments: '-c $(buildConfiguration)'
+        command: 'test'
+        projects: '$(testProject)/$(testProject).csproj'
+        testRunTitle: '$(osName) test'
+        
+
+    - script: echo '$(Build.BuildNumber)'
+      condition: succeededOrFailed()
+    - script: echo '$(Build.BuildId)'
+      condition: succeededOrFailed()
+
+- stage: Gather_Results
+  dependsOn: Test_All_Platforms
+  displayName: 'Gather test results'
+
+  condition: succeededOrFailed()
+  jobs:
+    - job: Gather
+      pool:
+        vmImage: 'windows-latest'
+      steps:
+        - script: echo '$(Build.BuildUri)'
+        - script: echo '$(Build.BuildId)'

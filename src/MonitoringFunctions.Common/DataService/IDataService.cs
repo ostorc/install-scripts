@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace MonitoringFunctions
 {
-    internal interface IDataService : IDisposable
+    public  interface IDataService : IDisposable
     {
         /// <summary>
         /// Stores the details of the <see cref="HttpRequestLogEntry"/> in the underlying data store.
