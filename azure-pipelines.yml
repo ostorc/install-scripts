@@ -15,15 +15,15 @@ stages:
         Linux:
           imageName: 'ubuntu-latest'
           osName: 'Ubuntu'
-          testProject: '**/UnixTest.csproj'
+          testProject: MonitoringFunctions.UnixTest
         Mac:
           imageName: 'macos-latest'
           osName: 'Mac OS'
-          testProject: '**/UnixTest.csproj'
+          testProject: MonitoringFunctions.UnixTest
         Windows:
           imageName: 'windows-latest'
           osName: 'Windows'
-          testProject: '**/WindowsTest.csproj'
+          testProject: MonitoringFunctions.WindowsTest
 
     pool:
       vmImage: $(imageName)
@@ -38,7 +38,7 @@ stages:
       inputs:
         arguments: '-c $(buildConfiguration)'
         command: 'test'
-        projects: '$(testProject)'
+        projects: 'src/$(testProject)/$(testProject).csproj'
         testRunTitle: '$(osName) test'
         
 
