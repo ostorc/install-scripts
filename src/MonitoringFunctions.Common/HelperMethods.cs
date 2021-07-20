@@ -107,6 +107,8 @@ namespace MonitoringFunctions
                 return;
             }
 
+            Assert.True(false, results.Output);
+
             // Parse the output
             ScriptDryRunResult dryRunResults = InstallScriptRunner.ParseDryRunOutput(results.Output);
 
@@ -120,7 +122,7 @@ namespace MonitoringFunctions
             }
 
             // Validate URL accessibility
-            await HelperMethods.CheckAndReportUrlAccessAsync(monitorName, dryRunResults.PrimaryUrl, dataService);
+            await CheckAndReportUrlAccessAsync(monitorName, dryRunResults.PrimaryUrl, dataService);
         }
     }
 }
